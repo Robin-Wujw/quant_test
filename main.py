@@ -6,8 +6,8 @@ import dateutil
 import datetime
 
 CASH = 100000
-START_DATE = '2019-01-01'
-END_DATE = '2021-8-17'
+START_DATE = '2016-01-07'
+END_DATE = '2016-01-31'
 trade_cal = pd.read_csv('trade_date.csv')
 class Context:
     def __init__(self,cash,start_date,end_date):
@@ -17,7 +17,7 @@ class Context:
         self.positions = {}
         self.benchmark = None 
         self.date_range = trade_cal[(trade_cal['trade_date']>=start_date)& (trade_cal['trade_date']<=end_date)]['trade_date'].values
-        self.dt = dateutil.parser.parse(start_date)
+        self.dt = dateutil.parser.parse(start_date)  #TODO: start_date后一个交易日
 class G:
     pass
 g = G()
@@ -35,5 +35,90 @@ def attribute_daterange_history(security,start_date,end_date,fields=('开盘','�
     except:
         df =  ak.stock_zh_a_hist(security,start_date,end_date, "qfq")
     return df[list(fields)]
+def get_today_data(security):
+    today = Context.dt
+    try:
+        f = open(security+'.csv','r', encoding='UTF-8')
+        data = pd.read_csv(f,index_col='日期',parse_dates=['日期']).loc[today,:]
+    except FileNotFoundError: 
+        data = ak.stock_zh_a_hist(security,today,today, "qfq")
+    except KeyError: #停牌
+        data = pd.Series()
+    return data
 
-print(attribute_history('600031',20))
+
+def _order(today_data,security,amount):
+    p = float(today_data['开盘'])
+    if len(today_data) == 0:
+        print('今日停牌')
+        return 
+    if Context.cash - amount * p < 0:
+        amount = int(Context.cash / p)
+        print('现金不足,已调整为%d' %(amount))
+    if amount % 100 != 0:
+        if amount != -Context.positions.get(security,0):
+            amount = int(amount / 100) * 100
+            print('不是100的倍数，已调整为%d' %amount)
+    if Context.positions.get(security,0) < -amount:
+        amount = - Context.positions.get(security,0)
+        print('卖出股票不能超过持仓数，已调整为%d' %amount)
+    Context.positions[security] = Context.positions.get(security,0) + amount
+
+    Context.cash -= amount * p 
+    if Context.positions[security] == 0:
+        del Context.positions[security]
+
+def order(security,amount):
+    today_data = get_today_data(security)
+    _order(today_data,security,amount)
+
+def order_target(security,amount):
+    if amount < 0:
+        print("数量不能为负，已调整成0")
+        amount = 0
+    today_data = get_today_data(security)
+    hold_amount = Context.positions.get(security,0)
+    delta_amount = amount - hold_amount 
+    _order(today_data,security,delta_amount)
+
+def order_value(security,value):
+    today_data = get_today_data(security)
+    amount = int(value / today_data['开盘'])
+    _order(today_data,security,amount)
+
+def order_target_value(security,value):
+    today_data = get_today_data(security)
+    if value < 0:
+        print('价值不能为负，已调整为0')
+        value = 0 
+    hold_value =  Context.positions.get(security,0) * today_data['开盘']
+    delta_value = value - hold_value
+    order_value(security,delta_value)
+
+def run():
+    plt_df = pd.DataFrame(index=pd.to_datetime(Context.date_range),columns=['value'])
+    init_value = Context.cash
+    initialize(Context)
+    last_prize = {}
+    for dt in Context.date_range:
+        Context.dt = dateutil.parser.parse(dt)
+        handle_data(Context)
+        value = Context.cash 
+        for stock in Context.positions:
+            #考虑停牌的情况
+            today_data  = get_today_data(stock)
+            if len(today_data) == 0:
+                p = float(last_prize[stock])
+            else:
+                p = float(today_data['开盘'])
+                last_prize[stock] = p
+            value += p * Context.positions[stock]
+        plt_df.loc[dt,'value'] = value
+    plt_df['ratio'] = (plt_df['value']-init_value)/init_value
+    print(plt_df)
+def initialize(Context):
+    pass 
+
+def handle_data(Context):
+    order('601318',100)
+run()
