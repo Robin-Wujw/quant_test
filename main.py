@@ -6,8 +6,8 @@ import dateutil
 import datetime
 
 CASH = 100000
-START_DATE = '2016-01-07'
-END_DATE = '2016-01-31'
+START_DATE = '2015-01-07'
+END_DATE = '2017-01-07'
 trade_cal = pd.read_csv('trade_date.csv')
 class Context:
     def __init__(self,cash,start_date,end_date):
@@ -21,6 +21,10 @@ class Context:
 class G:
     pass
 g = G()
+
+
+def set_benchmark(security): #只支持一只股票作为基准
+    Context.benchmark = security
 Context = Context(CASH,START_DATE,END_DATE) 
 def attribute_history(security,count,fields=('开盘','收盘','最高','最低')):
     end_date = (Context.dt - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
@@ -115,10 +119,25 @@ def run():
             value += p * Context.positions[stock]
         plt_df.loc[dt,'value'] = value
     plt_df['ratio'] = (plt_df['value']-init_value)/init_value
-    print(plt_df)
+    bm_df = attribute_daterange_history(Context.benchmark,Context.start_date,Context.end_date)
+    bm_init = bm_df['开盘'][0]
+    plt_df['benchmark_ratio'] = ((bm_df['开盘'] - bm_init)/bm_init).values
+    plt_df[['ratio','benchmark_ratio']].plot()
+    plt.show()
 def initialize(Context):
-    pass 
-
+    set_benchmark('601318') 
+    g.p1 = 5 
+    g.p2 = 60 
+    g.security = '601318'
 def handle_data(Context):
-    order('601318',100)
+    hist = attribute_history(g.security,g.p2)
+    ma5 = hist['收盘'][-g.p1:].mean()
+    ma60 = hist['收盘'].mean()
+
+    if ma5> ma60 and g.security not in Context.positions:
+        order_value(g.security,Context.cash)
+    elif ma5< ma60 and g.security in Context.positions:
+        order_target(g.security,0)
+        print('全部卖出')
 run()
+# t+1 手续费等
